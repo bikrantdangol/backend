@@ -143,7 +143,11 @@ const app = express();
 // app.use(cors());
 app.use(
   cors({
-    origin: "http://localhost:3000", // your Next.js dev URL
+
+    origin: [
+    "https://mirmirehrms.vercel.app/",  // ← your actual Vercel URL
+    "http://localhost:3000"              // ← keep this for local dev
+  ],
     credentials: true,
   }),
 );
