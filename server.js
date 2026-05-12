@@ -34,20 +34,28 @@ connectDB();
 const app = express();
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
+const allowedOrigins = [
+  "https://mirmirehrms.vercel.app",
+  "http://localhost:3000",
+];
+
 app.use(
   cors({
-    origin: [
-      "https://mirmirehrms.vercel.app", // ✅ no trailing slash
-      "http://localhost:3000",
-    ],
+    origin: function (origin, callback) {
+      // allow requests with no origin
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS not allowed"));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
-
-// ✅ Handle preflight requests for all routes
-app.options("*", cors());
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(express.json());
