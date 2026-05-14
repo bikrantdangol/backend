@@ -12,21 +12,10 @@ const fmt = (doc) => {
     X: "holiday",
     W: "weekend",
   };
-
-  // Nepal day of week from AD date
-  const getDayNameNPT = (adDate) => {
-    if (!adDate) return "—";
-    const nptOffset = 345 * 60 * 1000; // 5h 45m
-    const nptDate = new Date(new Date(adDate).getTime() + nptOffset);
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    return days[nptDate.getUTCDay()];
-  };
-
   return {
     _id: doc._id,
     date: doc.d,
     nepaliDate: doc.nd,
-    dayName: getDayNameNPT(doc.d), // ← this is new
     checkIn: doc.ci,
     checkOut: doc.co,
     workingMinutes: doc.wm,
@@ -42,10 +31,11 @@ const fmt = (doc) => {
 // GET /api/attendance/today
 const getTodayAttendance = async (req, res, next) => {
   try {
+    // Use NPT date for "today" so it matches how zkService stores dates
     const NPT_OFFSET_MS = 345 * 60 * 1000;
     const nowNPT = new Date(Date.now() + NPT_OFFSET_MS);
-    const todayStr = nowNPT.toISOString().slice(0, 10);
-    const today = new Date(todayStr + "T00:00:00.000Z");
+    const todayStr = nowNPT.toISOString().slice(0, 10); // "2026-05-06" in NPT
+    const today = new Date(todayStr + "T00:00:00.000Z"); // UTC midnight
     const doc = await Attendance.findOne({ u: req.user._id, d: today }).lean();
     res.json({ record: doc ? fmt(doc) : null });
   } catch (err) {
