@@ -93,13 +93,113 @@ io.on("connection", (socket) => {
     officeBridge = null;
   });
 
-  // 🆕 Office bridge sends sync data here → save to MongoDB
+  // 🆕 Office bridge sends sync data here → process and save to MongoDB
   socket.on("sync-data", async (logs) => {
     console.log(`[Bridge] Received ${logs.length} logs from office PC`);
     try {
-      const { syncAttendanceLogs } = require("./services/zkService");
-      await syncAttendanceLogs();
-      socket.emit("sync-done", { success: true });
+      // Process each log
+      const User = require("./models/User");
+      const Attendance = require("./models/Attendance");
+      const Holiday = require("./models/Holiday");
+      const Leave = require("./models/Leave");
+      const { toNepaliDate } = require("./utils/nepaliDate");
+      const {
+        isLateCheckIn,
+        isEarlyCheckOut,
+        calculateWorkingMinutes,
+        isSaturday,
+      } = require("./utils/attendanceHelper");
+
+      let synced = 0;
+      let skipped = 0;
+
+      const NPT_OFFSET_MS = 345 * 60 * 1000;
+
+      // Group logs by user + date
+      const grouped = {};
+      for (const log of logs) {
+        const t = new Date(log.record_time);
+        if (isNaN(t.getTime())) continue;
+
+        const nptDate = new Date(t.getTime() + NPT_OFFSET_MS);
+        const day = nptDate.toISOString().slice(0, 10);
+        const key = `${log.user_id}__${day}`;
+
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(t);
+      }
+
+      for (const [key, punches] of Object.entries(grouped)) {
+        const [bioId, dayStr] = key.split("__");
+
+        // Find user by biometricId
+        const user = await User.findOne({
+          biometricId: String(bioId),
+          isActive: true,
+        }).lean();
+        if (!user) {
+          skipped++;
+          continue;
+        }
+
+        punches.sort((a, b) => a - b);
+        const checkIn = punches[0];
+        const checkOut =
+          punches.length > 1 ? punches[punches.length - 1] : null;
+
+        const date = new Date(dayStr + "T00:00:00.000Z");
+
+        // Check holiday/leave
+        const [holiday, onLeave] = await Promise.all([
+          Holiday.findOne({ date }).lean(),
+          Leave.findOne({
+            user: user._id,
+            status: "approved",
+            fromDate: { $lte: date },
+            toDate: { $gte: date },
+          }).lean(),
+        ]);
+
+        const weekend = isSaturday(date);
+        let status = "P";
+        if (weekend) status = "W";
+        if (holiday) status = "X";
+        if (onLeave) status = "L";
+        if (!checkIn) status = "A";
+
+        const late =
+          checkIn && !weekend && !holiday ? isLateCheckIn(checkIn) : false;
+        const earlyOut =
+          checkOut && !weekend && !holiday ? isEarlyCheckOut(checkOut) : false;
+        const workMins =
+          checkIn && checkOut ? calculateWorkingMinutes(checkIn, checkOut) : 0;
+        const overtimeMins = workMins > 360 ? workMins - 360 : 0;
+
+        await Attendance.findOneAndUpdate(
+          { u: user._id, d: date },
+          {
+            $set: {
+              nd: toNepaliDate(date),
+              ci: checkIn,
+              co: checkOut,
+              wm: workMins,
+              ot: overtimeMins,
+              st: status,
+              lt: late,
+              el: earlyOut,
+              src: "b",
+            },
+          },
+          { upsert: true },
+        );
+
+        synced++;
+      }
+
+      console.log(
+        `[Bridge] Sync complete — synced: ${synced}, skipped: ${skipped}`,
+      );
+      socket.emit("sync-done", { success: true, synced, skipped });
     } catch (err) {
       console.error("[Bridge] Sync error:", err.message);
       socket.emit("sync-done", { success: false, error: err.message });
