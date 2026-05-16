@@ -274,6 +274,14 @@ const shutdown = async (signal) => {
   console.log("[Server] Clean exit");
   process.exit(0);
 };
+// Only start ZK services if explicitly enabled (won't work on Render anyway)
+if (process.env.ZK_REALTIME_ENABLED === "true") {
+  console.log("[ZKTeco] Starting real-time listener...");
+  startRealTimeListener();
+  startSyncScheduler();
+} else {
+  console.log("[ZKTeco] Skipping ZK services — bridge mode active");
+}
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
