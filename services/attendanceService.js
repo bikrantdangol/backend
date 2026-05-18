@@ -234,7 +234,10 @@ const getMonthlyAttendanceSummary = async (userId, nepaliYear, nepaliMonth) => {
   // Build a map of existing records by date string
   const recordMap = {};
   existingRecords.forEach((r) => {
-    recordMap[r.d.toISOString().slice(0, 10)] = r;
+    // Normalize: create a UTC midnight date, then get ISO string
+    const d = new Date(r.d);
+    d.setHours(0, 0, 0, 0);
+    recordMap[d.toISOString().slice(0, 10)] = r;
   });
 
   // Walk every day in range and fill gaps with absent/weekend/holiday/leave
@@ -279,6 +282,23 @@ const getMonthlyAttendanceSummary = async (userId, nepaliYear, nepaliMonth) => {
 
     cur.setDate(cur.getDate() + 1);
   }
+
+  // DEBUG
+  const may17 = allRecords.find((r) => {
+    const d = new Date(r.d).toISOString().slice(0, 10);
+    return d === "2026-05-17";
+  });
+  console.log(
+    "MAY 17 RECORD:",
+    JSON.stringify({
+      found: !!may17,
+      st: may17?.st,
+      ci: may17?.ci,
+      co: may17?.co,
+      synthetic: may17?._synthetic,
+      id: may17?._id,
+    }),
+  );
 
   return {
     summary: buildSummary(allRecords),
