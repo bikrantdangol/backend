@@ -1,169 +1,302 @@
 const PDFDocument = require("pdfkit");
 
-const drawSummaryBoxes = (doc, summary, startY) => {
-  const boxW = 98;
-  const boxH = 45;
-  const gap = 8;
-  const x0 = 40;
-  const labels = [
-    ["Total", summary?.totalDays || 0],
-    ["Present", summary?.presentDays || 0],
-    ["Late", summary?.lateDays || 0],
-    ["Absent", summary?.absentDays || 0],
-    ["Leave", summary?.leaveDays || 0],
-  ];
-
-  labels.forEach(([label, value], index) => {
-    const x = x0 + index * (boxW + gap);
-    doc
-      .roundedRect(x, startY, boxW, boxH, 6)
-      .fillAndStroke("#f3f4f6", "#d1d5db");
-    doc
-      .fillColor("#1a3c5e")
-      .font("Helvetica-Bold")
-      .fontSize(9)
-      .text(label, x + 8, startY + 8);
-    doc
-      .fillColor("#111827")
-      .font("Helvetica-Bold")
-      .fontSize(14)
-      .text(String(value), x + 8, startY + 22);
-  });
-
-  return { boxH };
-};
-
-const addDailyRecordsTable = (doc, records, startY) => {
-  const headers = ["Date", "Employee", "Status", "In", "Out"];
-  const colPositions = [40, 125, 320, 405, 480];
-  let y = startY;
-
-  doc.fontSize(14).fillColor("#1a3c5e").text("Daily Records", 40, y);
-  doc
-    .moveTo(40, y + 16)
-    .lineTo(555, y + 16)
-    .strokeColor("#2563eb")
-    .lineWidth(1)
-    .stroke();
-  y += 24;
-
-  doc.rect(40, y, 515, 18).fill("#1a3c5e");
-  doc.fillColor("white").fontSize(8).font("Helvetica-Bold");
-  headers.forEach((header, i) => doc.text(header, colPositions[i], y + 4));
-  y += 18;
-
-  (records || []).forEach((record, index) => {
-    if (y > 760) {
-      doc.addPage();
-      y = 40;
-    }
-    const bg = index % 2 === 0 ? "white" : "#f3f4f6";
-    doc.rect(40, y, 515, 16).fill(bg);
-    doc.fillColor("#333").fontSize(8).font("Helvetica");
-    doc.text(record.date || "-", colPositions[0], y + 3);
-    doc.text(
-      record.userName || record.employee || "-",
-      colPositions[1],
-      y + 3,
-      { width: 185, ellipsis: true },
-    );
-    doc.text(record.status || "-", colPositions[2], y + 3);
-    doc.text(record.checkIn || record.inTime || "-", colPositions[3], y + 3);
-    doc.text(record.checkOut || record.outTime || "-", colPositions[4], y + 3);
-    y += 16;
-  });
-};
-
-const addEmployeeSummaryTable = (doc, employees) => {
-  const tableTop = doc.y + 10;
-
-  doc.fontSize(14).fillColor("#1a3c5e").text("Employee Summary", 40, tableTop);
-  doc
-    .moveTo(40, tableTop + 16)
-    .lineTo(555, tableTop + 16)
-    .strokeColor("#2563eb")
-    .lineWidth(1)
-    .stroke();
-
-  const headers = ["Employee", "Role", "Present", "Late", "Absent"];
-  const colPositions = [40, 160, 300, 390, 470];
-  let rowY = tableTop + 25;
-
-  // Header row
-  doc.rect(40, rowY, 515, 18).fill("#1a3c5e");
-  doc.fillColor("white").fontSize(8).font("Helvetica-Bold");
-  headers.forEach((h, i) => doc.text(h, colPositions[i], rowY + 4));
-  rowY += 18;
-
-  // Data rows
-  employees.forEach((emp, idx) => {
-    const bg = idx % 2 === 0 ? "white" : "#f3f4f6";
-    doc.rect(40, rowY, 515, 16).fill(bg);
-    doc.fillColor("#333").fontSize(8).font("Helvetica");
-    doc.text(emp.fullName, colPositions[0], rowY + 3);
-    doc.text(emp.role, colPositions[1], rowY + 3);
-    doc.text(String(emp.present), colPositions[2], rowY + 3);
-    doc.text(String(emp.late), colPositions[3], rowY + 3);
-    doc.text(String(emp.absent), colPositions[4], rowY + 3);
-    rowY += 16;
-  });
-
-  doc.moveDown(2);
-  return rowY;
-};
-
 /**
- * Generate attendance report PDF and return the PDF buffer.
- * @param {object} reportData - Report data object
+ * Generate official attendance report PDF (landscape A4, formal letterhead)
+ * @param {object} reportData
+ * @param {object} reportData.user           - { fullName, role, email }
+ * @param {string} reportData.period         - e.g. "Jestha 2083"
+ * @param {object} reportData.summary        - { totalDays, presentDays, lateDays, absentDays, ... }
+ * @param {Array}  reportData.employees      - [{ fullName, role, present, late, absent }]
+ * @param {Array}  reportData.records        - [{ nepaliDate, checkIn, checkOut, status, userName }]
  * @returns {Promise<Buffer>} PDF buffer
  */
 const generateAttendanceReportPDF = async (reportData) => {
-  const { user, period, summary, records } = reportData;
+  const { user, period, summary, employees, records } = reportData;
 
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: "A4" });
+    // Landscape A4 with 40pt margins
+    const doc = new PDFDocument({
+      size: "A4",
+      layout: "landscape",
+      margin: 40,
+    });
     const buffers = [];
 
     doc.on("data", (chunk) => buffers.push(chunk));
     doc.on("end", () => {
       const pdfBuffer = Buffer.concat(buffers);
-      resolve(pdfBuffer); // ← return the buffer directly
+      resolve(pdfBuffer);
     });
     doc.on("error", reject);
 
-    // Header
+    // Helpers
+    const pageWidth =
+      doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const left = doc.page.margins.left;
+    const centerX = left + pageWidth / 2;
+
+    // ─── Formal Letterhead Header ──────────────────────────────────
     doc
-      .fillColor("#1a3c5e")
+      .fontSize(18)
       .font("Helvetica-Bold")
-      .fontSize(20)
-      .text("Attendance Report", 40, 40);
+      .fillColor("#1a2b4c")
+      .text(
+        "Mirmire Saving & Credit Co-operative Ltd.",
+        left,
+        doc.page.margins.top,
+        { align: "center", width: pageWidth },
+      );
     doc
-      .moveTo(40, 66)
-      .lineTo(555, 66)
-      .strokeColor("#2563eb")
-      .lineWidth(1.2)
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor("#333")
+      .text("Tokha, Saraswati-2, Kathmandu", {
+        align: "center",
+        width: pageWidth,
+      });
+    doc.text("Tel: 01-5110048", { align: "center", width: pageWidth });
+    doc.moveDown(0.3);
+
+    // Horizontal divider
+    const dividerY = doc.y;
+    doc
+      .moveTo(left, dividerY)
+      .lineTo(left + pageWidth, dividerY)
+      .strokeColor("#1a2b4c")
+      .lineWidth(1)
       .stroke();
+    doc.moveDown(0.3);
 
-    doc.fillColor("#111827").font("Helvetica").fontSize(10);
-    doc.text(`Name: ${user?.fullName || "N/A"}`, 40, 78);
-    doc.text(`Role: ${user?.role || "N/A"}`, 40, 93);
-    doc.text(`Email: ${user?.email || "N/A"}`, 40, 108);
-    doc.text(`Period: ${period || "N/A"}`, 40, 123);
+    // Report title
+    doc
+      .fontSize(14)
+      .font("Helvetica-Bold")
+      .fillColor("#1a2b4c")
+      .text("Attendance Report", { align: "center", width: pageWidth });
+    doc
+      .fontSize(11)
+      .font("Helvetica")
+      .fillColor("#333")
+      .text(`Period: ${period}`, { align: "center", width: pageWidth });
+    doc.moveDown(0.3);
 
-    // Overall summary boxes
-    const sumBoxY = 150;
-    const { boxH } = drawSummaryBoxes(doc, summary, sumBoxY);
-
-    // Employee Summary Table (new)
-    const employeeSummary = reportData.employees || [];
-    let tableY = sumBoxY + boxH + 25;
-    if (employeeSummary.length > 0) {
-      doc.y = tableY;
-      tableY = addEmployeeSummaryTable(doc, employeeSummary) + 10;
+    // Optional plain-text summary line (no boxes, no cards)
+    if (summary) {
+      const summaryText = `Total Days: ${summary.totalDays || 0} | Present: ${summary.presentDays || 0} | Late: ${summary.lateDays || 0} | Absent: ${summary.absentDays || 0}`;
+      doc
+        .fontSize(9)
+        .fillColor("#555")
+        .text(summaryText, { align: "center", width: pageWidth });
+      doc.moveDown(0.5);
     }
 
-    // Daily Records table follows...
-    addDailyRecordsTable(doc, records, tableY);
+    // ─── Employee Summary Table ──────────────────────────────────
+    if (employees && employees.length > 0) {
+      doc
+        .fontSize(11)
+        .font("Helvetica-Bold")
+        .fillColor("#1a2b4c")
+        .text("Employee Summary");
+      doc.moveDown(0.2);
+
+      const tableTop = doc.y;
+      const col1 = left;
+      const col2 = col1 + 220; // Employee
+      const col3 = col2 + 130; // Role
+      const col4 = col3 + 90; // Present
+      const col5 = col4 + 90; // Late
+      const col6 = col5 + 90; // Absent
+      const rowHeight = 18;
+      const headerHeight = 20;
+
+      // Table header
+      doc.rect(col1, tableTop, pageWidth, headerHeight).fill("#1a2b4c");
+      doc.fillColor("white").fontSize(8).font("Helvetica-Bold");
+      doc.text("Employee", col1 + 5, tableTop + 4, {
+        width: col2 - col1 - 10,
+        ellipsis: true,
+      });
+      doc.text("Role", col2 + 5, tableTop + 4, { width: col3 - col2 - 10 });
+      doc.text("Present", col4, tableTop + 4, {
+        width: col5 - col4,
+        align: "center",
+      });
+      doc.text("Late", col5, tableTop + 4, {
+        width: col6 - col5,
+        align: "center",
+      });
+      doc.text("Absent", col6, tableTop + 4, {
+        width: left + pageWidth - col6,
+        align: "center",
+      });
+
+      let y = tableTop + headerHeight;
+      employees.forEach((emp, idx) => {
+        const bgColor = idx % 2 === 0 ? "#ffffff" : "#f3f4f6";
+        doc.rect(col1, y, pageWidth, rowHeight).fill(bgColor);
+        doc.fillColor("#333").fontSize(8).font("Helvetica");
+        doc.text(emp.fullName || "", col1 + 5, y + 3, {
+          width: col2 - col1 - 10,
+          ellipsis: true,
+        });
+        doc.text(emp.role || "", col2 + 5, y + 3, { width: col3 - col2 - 10 });
+        doc.text(String(emp.present || 0), col4, y + 3, {
+          width: col5 - col4,
+          align: "center",
+        });
+        doc.text(String(emp.late || 0), col5, y + 3, {
+          width: col6 - col5,
+          align: "center",
+        });
+        doc.text(String(emp.absent || 0), col6, y + 3, {
+          width: left + pageWidth - col6,
+          align: "center",
+        });
+        y += rowHeight;
+
+        // New page if necessary
+        if (y > doc.page.height - 60) {
+          doc.addPage({ size: "A4", layout: "landscape", margin: 40 });
+          y = doc.page.margins.top;
+          // Repeat header on new page
+          doc.rect(col1, y, pageWidth, headerHeight).fill("#1a2b4c");
+          doc.fillColor("white").fontSize(8).font("Helvetica-Bold");
+          doc.text("Employee", col1 + 5, y + 4, { width: col2 - col1 - 10 });
+          doc.text("Role", col2 + 5, y + 4, { width: col3 - col2 - 10 });
+          doc.text("Present", col4, y + 4, {
+            width: col5 - col4,
+            align: "center",
+          });
+          doc.text("Late", col5, y + 4, {
+            width: col6 - col5,
+            align: "center",
+          });
+          doc.text("Absent", col6, y + 4, {
+            width: left + pageWidth - col6,
+            align: "center",
+          });
+          y += headerHeight;
+        }
+      });
+
+      doc.y = y + 10;
+    }
+
+    // ─── Daily Records Table ────────────────────────────────────
+    if (records && records.length > 0) {
+      doc
+        .fontSize(11)
+        .font("Helvetica-Bold")
+        .fillColor("#1a2b4c")
+        .text("Daily Records");
+      doc.moveDown(0.2);
+
+      const tableTop = doc.y;
+      const col1 = left;
+      const col2 = col1 + 90; // Date (BS)
+      const col3 = col2 + 180; // Employee
+      const col4 = col3 + 110; // Check In
+      const col5 = col4 + 110; // Check Out
+      const col6 = col5 + 100; // Status
+      const rowHeight = 18;
+      const headerHeight = 20;
+
+      // Table header
+      doc.rect(col1, tableTop, pageWidth, headerHeight).fill("#1a2b4c");
+      doc.fillColor("white").fontSize(8).font("Helvetica-Bold");
+      doc.text("Date (BS)", col1 + 5, tableTop + 4, {
+        width: col2 - col1 - 10,
+      });
+      doc.text("Employee", col2 + 5, tableTop + 4, { width: col3 - col2 - 10 });
+      doc.text("Check In", col4, tableTop + 4, {
+        width: col5 - col4,
+        align: "center",
+      });
+      doc.text("Check Out", col5, tableTop + 4, {
+        width: col6 - col5,
+        align: "center",
+      });
+      doc.text("Status", col6, tableTop + 4, {
+        width: left + pageWidth - col6,
+        align: "center",
+      });
+
+      let y = tableTop + headerHeight;
+      records.forEach((rec, idx) => {
+        const bgColor = idx % 2 === 0 ? "#ffffff" : "#f3f4f6";
+        doc.rect(col1, y, pageWidth, rowHeight).fill(bgColor);
+        doc.fillColor("#333").fontSize(8).font("Helvetica");
+
+        doc.text(rec.nepaliDate || "-", col1 + 5, y + 3, {
+          width: col2 - col1 - 10,
+        });
+        doc.text(rec.userName || "-", col2 + 5, y + 3, {
+          width: col3 - col2 - 10,
+          ellipsis: true,
+        });
+
+        const ci = rec.checkIn
+          ? new Date(rec.checkIn).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            })
+          : "-";
+        const co = rec.checkOut
+          ? new Date(rec.checkOut).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            })
+          : "-";
+        doc.text(ci, col4, y + 3, { width: col5 - col4, align: "center" });
+        doc.text(co, col5, y + 3, { width: col6 - col5, align: "center" });
+
+        const status = rec.status
+          ? rec.status.charAt(0).toUpperCase() + rec.status.slice(1)
+          : "-";
+        doc.text(status, col6, y + 3, {
+          width: left + pageWidth - col6,
+          align: "center",
+        });
+
+        y += rowHeight;
+
+        if (y > doc.page.height - 60) {
+          doc.addPage({ size: "A4", layout: "landscape", margin: 40 });
+          y = doc.page.margins.top;
+          // Repeat header on new page
+          doc.rect(col1, y, pageWidth, headerHeight).fill("#1a2b4c");
+          doc.fillColor("white").fontSize(8).font("Helvetica-Bold");
+          doc.text("Date (BS)", col1 + 5, y + 4, { width: col2 - col1 - 10 });
+          doc.text("Employee", col2 + 5, y + 4, { width: col3 - col2 - 10 });
+          doc.text("Check In", col4, y + 4, {
+            width: col5 - col4,
+            align: "center",
+          });
+          doc.text("Check Out", col5, y + 4, {
+            width: col6 - col5,
+            align: "center",
+          });
+          doc.text("Status", col6, y + 4, {
+            width: left + pageWidth - col6,
+            align: "center",
+          });
+          y += headerHeight;
+        }
+      });
+
+      doc.y = y + 10;
+    }
+
+    // ─── Footer ──────────────────────────────────────────────────
+    doc
+      .fontSize(7)
+      .fillColor("#888")
+      .text(
+        `Generated on ${new Date().toLocaleDateString()} by Finance Institute HRMS`,
+        { align: "center", width: pageWidth },
+      );
 
     doc.end();
   });

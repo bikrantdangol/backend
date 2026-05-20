@@ -16,8 +16,38 @@ const {
   determineAttendanceStatus,
   isSaturday,
 } = require("../utils/attendanceHelper");
+const OFFICE_RULES = require("../constants/officeRules");
 
 const NPT_OFFSET_MS = 345 * 60 * 1000; // UTC+5:45
+
+/**
+ * Calculate overtime minutes for a regular working day.
+ * Overtime = minutes before OFFICE_START + minutes after OFFICE_END
+ */
+const calculateRegularDayOvertime = (checkIn, checkOut) => {
+  const ci = new Date(checkIn);
+  const co = new Date(checkOut);
+
+  const startMins =
+    OFFICE_RULES.OFFICE_START_HOUR * 60 + OFFICE_RULES.OFFICE_START_MINUTE;
+  const endMins =
+    OFFICE_RULES.OFFICE_END_HOUR * 60 + OFFICE_RULES.OFFICE_END_MINUTE;
+
+  const ciNPT = new Date(ci.getTime() + NPT_OFFSET_MS);
+  const coNPT = new Date(co.getTime() + NPT_OFFSET_MS);
+
+  const ciTotalMins = ciNPT.getHours() * 60 + ciNPT.getMinutes();
+  const coTotalMins = coNPT.getHours() * 60 + coNPT.getMinutes();
+
+  let overtime = 0;
+  if (ciTotalMins < startMins) {
+    overtime += startMins - ciTotalMins;
+  }
+  if (coTotalMins > endMins) {
+    overtime += coTotalMins - endMins;
+  }
+  return overtime;
+};
 
 // Get today's date in NPT as UTC midnight
 const getTodayNPT = () => {
@@ -83,7 +113,7 @@ const checkOut = async (userId) => {
     attendance.ot = totalMinutes;
   } else {
     attendance.wm = calculateWorkingMinutes(attendance.ci, now);
-    attendance.ot = 0;
+    attendance.ot = calculateRegularDayOvertime(attendance.ci, now);
   }
 
   await attendance.save();
@@ -134,7 +164,7 @@ const upsertBiometricAttendance = async ({ userId, punchTime }) => {
       update.st = status;
     } else {
       update.wm = calculateWorkingMinutes(existing.ci, time);
-      update.ot = 0;
+      update.ot = calculateRegularDayOvertime(existing.ci, time);
       update.st = determineAttendanceStatus({
         checkIn: existing.ci,
         checkOut: time,
