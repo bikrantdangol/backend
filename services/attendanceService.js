@@ -24,28 +24,59 @@ const NPT_OFFSET_MS = 345 * 60 * 1000; // UTC+5:45
  * Calculate overtime minutes for a regular working day.
  * Overtime = minutes before OFFICE_START + minutes after OFFICE_END
  */
+// const calculateRegularDayOvertime = (checkIn, checkOut) => {
+//   const ci = new Date(checkIn);
+//   const co = new Date(checkOut);
+
+//   const startMins =
+//     OFFICE_RULES.OFFICE_START_HOUR * 60 + OFFICE_RULES.OFFICE_START_MINUTE;
+//   const endMins =
+//     OFFICE_RULES.OFFICE_END_HOUR * 60 + OFFICE_RULES.OFFICE_END_MINUTE;
+
+//   const ciNPT = new Date(ci.getTime() + NPT_OFFSET_MS);
+//   const coNPT = new Date(co.getTime() + NPT_OFFSET_MS);
+
+//   const ciTotalMins = ciNPT.getHours() * 60 + ciNPT.getMinutes();
+//   const coTotalMins = coNPT.getHours() * 60 + coNPT.getMinutes();
+
+//   let overtime = 0;
+//   if (ciTotalMins < startMins) {
+//     overtime += startMins - ciTotalMins;
+//   }
+//   if (coTotalMins > endMins) {
+//     overtime += coTotalMins - endMins;
+//   }
+//   return overtime;
+// };
 const calculateRegularDayOvertime = (checkIn, checkOut) => {
-  const ci = new Date(checkIn);
-  const co = new Date(checkOut);
+  if (!checkIn || !checkOut) return 0;
+
+  const NPT_OFFSET_MS = 345 * 60 * 1000; // +5h45m
 
   const startMins =
-    OFFICE_RULES.OFFICE_START_HOUR * 60 + OFFICE_RULES.OFFICE_START_MINUTE;
+    OFFICE_RULES.OFFICE_START_HOUR * 60 + OFFICE_RULES.OFFICE_START_MINUTE; // 420 = 7:00AM
   const endMins =
-    OFFICE_RULES.OFFICE_END_HOUR * 60 + OFFICE_RULES.OFFICE_END_MINUTE;
+    OFFICE_RULES.OFFICE_END_HOUR * 60 + OFFICE_RULES.OFFICE_END_MINUTE; // 840 = 2:00PM
 
-  const ciNPT = new Date(ci.getTime() + NPT_OFFSET_MS);
-  const coNPT = new Date(co.getTime() + NPT_OFFSET_MS);
+  // Convert UTC stored time → NPT wall clock
+  const ciNPT = new Date(new Date(checkIn).getTime() + NPT_OFFSET_MS);
+  const coNPT = new Date(new Date(checkOut).getTime() + NPT_OFFSET_MS);
 
-  const ciTotalMins = ciNPT.getHours() * 60 + ciNPT.getMinutes();
-  const coTotalMins = coNPT.getHours() * 60 + coNPT.getMinutes();
+  // Get NPT hours and minutes
+  const ciMins = ciNPT.getUTCHours() * 60 + ciNPT.getUTCMinutes();
+  const coMins = coNPT.getUTCHours() * 60 + coNPT.getUTCMinutes();
+
+  // Debug log — remove after confirming correct
+  console.log(
+    `  CI NPT: ${ciNPT.getUTCHours()}:${String(ciNPT.getUTCMinutes()).padStart(2, "0")} (${ciMins}min) | CO NPT: ${coNPT.getUTCHours()}:${String(coNPT.getUTCMinutes()).padStart(2, "0")} (${coMins}min)`,
+  );
+  console.log(
+    `  Before 7AM: ${ciMins < startMins ? startMins - ciMins : 0}min | After 2PM: ${coMins > endMins ? coMins - endMins : 0}min`,
+  );
 
   let overtime = 0;
-  if (ciTotalMins < startMins) {
-    overtime += startMins - ciTotalMins;
-  }
-  if (coTotalMins > endMins) {
-    overtime += coTotalMins - endMins;
-  }
+  if (ciMins < startMins) overtime += startMins - ciMins; // before 7:00 AM NPT
+  if (coMins > endMins) overtime += coMins - endMins; // after  2:00 PM NPT
   return overtime;
 };
 
