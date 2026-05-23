@@ -72,6 +72,7 @@ app.use("/api/occasions", occasionRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/zk", zkRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/salary", require("./routes/salaryRoutes"));
 app.use("/api/profile", require("./routes/profileRoutes"));
 
 console.log("✅ Profile routes loaded");
