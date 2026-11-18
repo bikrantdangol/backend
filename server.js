@@ -119,8 +119,12 @@ io.on("connection", (socket) => {
       // Group logs by user + date
       const grouped = {};
       for (const log of logs) {
+        // FIX: Ensure we parse the record_time correctly
         const t = new Date(log.record_time);
-        if (isNaN(t.getTime())) continue;
+        if (isNaN(t.getTime())) {
+            console.log(`[Bridge] Skipping invalid date: ${log.record_time}`);
+            continue;
+        }
 
         const nptDate = new Date(t.getTime() + NPT_OFFSET_MS);
         const day = nptDate.toISOString().slice(0, 10);
@@ -138,6 +142,7 @@ io.on("connection", (socket) => {
           biometricId: String(bioId),
           isActive: true,
         }).lean();
+        
         if (!user) {
           skipped++;
           continue;
@@ -202,8 +207,9 @@ io.on("connection", (socket) => {
       );
       socket.emit("sync-done", { success: true, synced, skipped });
     } catch (err) {
-      console.error("[Bridge] Sync error:", err.message);
-      socket.emit("sync-done", { success: false, error: err.message });
+      // FIX: Changed err.message to err so we can see the FULL error object
+      console.error("[Bridge] FULL SYNC ERROR:", err);
+      socket.emit("sync-done", { success: false, error: err.message || "Unknown error" });
     }
   });
 });
